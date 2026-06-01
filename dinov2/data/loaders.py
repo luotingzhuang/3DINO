@@ -11,6 +11,7 @@ import os
 from copy import deepcopy
 import random
 
+import numpy as np
 import torch
 from torch.utils.data import Sampler
 from monai.data import CacheNTransDataset, PersistentDataset
@@ -51,28 +52,66 @@ def make_dataset_3d(
     dataset_path: str,
     cache_path: str,
     data_min_axis_size: int,
+    input_format: str = "nifti",
+    cache_n_trans: int = 5,
     transform: Optional[Callable] = None,
 ):
     """
     Creates a 3d input dataset with the specified parameters.
 
     Args:
-        dataset_path: A path to a list of sample paths for MONAI datasets.
+        dataset_path: A path to a list of sample paths for MONAI datasets, or a directory of numpy files.
         cache_path: A path to a directory to cache the dataset.
         data_min_axis_size: The minimum size of the smallest axis of the data.
+        input_format: The input volume format. Supports "nifti" and "numpy".
+        cache_n_trans: Number of leading transforms to cache in MONAI CacheNTransDataset.
         transform: A transform to apply to images.
     Returns:
         The created dataset.
     """
     logger.info(f'creating 3d dataset from datalist: {dataset_path}')
+    input_format = input_format.lower()
+
+    def _numpy_shape(path):
+        if path.endswith(".npz"):
+            with np.load(path, mmap_mode="r") as npz_file:
+                key = next(iter(npz_file.files))
+                return npz_file[key].shape
+        return np.load(path, mmap_mode="r").shape
+
+    def _as_sample(item):
+        if isinstance(item, str):
+            sample = {"image": item}
+        else:
+            sample = item
+
+        if input_format in ("numpy", "npy", "npz") and "shape" not in sample:
+            sample["shape"] = _numpy_shape(sample["image"])
+        return sample
+
+    def _spatial_shape(shape):
+        if len(shape) == 4 and shape[0] <= 4:
+            return shape[1:]
+        if len(shape) == 4 and shape[-1] <= 4:
+            return shape[:3]
+        return shape[:3]
 
     # load datalist
-    with open(dataset_path, 'r') as json_f:
-        datalist = json.load(json_f)
+    if input_format in ("numpy", "npy", "npz") and os.path.isdir(dataset_path):
+        datalist = [
+            {"image": os.path.join(dataset_path, filename)}
+            for filename in sorted(os.listdir(dataset_path))
+            if filename.endswith((".npy", ".npz"))
+        ]
+    else:
+        with open(dataset_path, 'r') as json_f:
+            datalist = json.load(json_f)
+
+    datalist = [_as_sample(x) for x in datalist]
 
     # filter overly small data
-    datalist = [x for x in datalist if min(x['shape'][:3]) > data_min_axis_size]
-    dataset = CacheNTransDataset(datalist, transform=transform, cache_n_trans=5, cache_dir=cache_path)
+    datalist = [x for x in datalist if min(_spatial_shape(x['shape'])) > data_min_axis_size]
+    dataset = CacheNTransDataset(datalist, transform=transform, cache_n_trans=cache_n_trans, cache_dir=cache_path)
 
     # Aggregated datasets do not expose (yet) these attributes, so add them.
     if not hasattr(dataset, "transform"):

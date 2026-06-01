@@ -62,6 +62,9 @@ train:
   batch_size_per_gpu: 128
   data_min_axis_size: 24
   dataset_path: '/home/txu/scratch/amgrp/dinov2_3d/dinov2_subset_datalist.json'
+  input_format: nifti
+  random_crop_size:
+  npz_key:
   output_dir: ./output_test
   saveckp_freq: 20
   seed: 0

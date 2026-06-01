@@ -9,7 +9,9 @@ import logging
 import math
 import os
 from functools import partial
-from monai.transforms import Compose, LoadImaged, ScaleIntensityRangePercentilesd, Lambdad
+from typing import Optional
+import numpy as np
+from monai.transforms import Compose, LoadImaged, MapTransform, RandSpatialCropd, ScaleIntensityRangePercentilesd, Lambdad
 import random
 
 from fvcore.common.checkpoint import PeriodicCheckpointer
@@ -27,6 +29,44 @@ from dinov2.train.ssl_meta_arch import SSLMetaArch
 
 torch.backends.cuda.matmul.allow_tf32 = True  # PyTorch 1.12 sets this to False by default
 logger = logging.getLogger("dinov2")
+
+
+class LoadNumpyd(MapTransform):
+    """
+    Load 3D numpy volumes for MONAI dictionary transforms.
+
+    Expected nodule crops are shaped (H, W, D), e.g. 100 x 100 x 100. A channel
+    dimension is added so downstream transforms receive (C, H, W, D).
+    """
+
+    def __init__(self, keys, npz_key: Optional[str] = None):
+        super().__init__(keys)
+        self.npz_key = npz_key
+
+    def _load_array(self, path):
+        path = os.fspath(path)
+        if path.endswith(".npz"):
+            with np.load(path) as npz_file:
+                key = self.npz_key or next(iter(npz_file.files))
+                array = npz_file[key]
+        else:
+            array = np.load(path)
+
+        array = np.asarray(array)
+        if array.ndim == 3:
+            array = array[None]
+        elif array.ndim == 4 and array.shape[0] != 1 and array.shape[-1] == 1:
+            array = np.moveaxis(array, -1, 0)
+        elif array.ndim != 4:
+            raise ValueError(f"Expected a 3D volume or channel-first 4D volume, got shape {array.shape} from {path}")
+
+        return torch.as_tensor(array, dtype=torch.float32)
+
+    def __call__(self, data):
+        data = dict(data)
+        for key in self.keys:
+            data[key] = self._load_array(data[key])
+        return data
 
 
 def get_args_parser(add_help: bool = True):
@@ -183,16 +223,50 @@ def do_train(cfg, model, resume=False):
             x = x[t:t + 1]
         return x
 
+    input_format = str(getattr(cfg.train, "input_format", "nifti")).lower()
+    random_crop_size = getattr(cfg.train, "random_crop_size", None)
+    if random_crop_size is not None:
+        random_crop_size = int(random_crop_size)
+
+    npz_key = getattr(cfg.train, "npz_key", None)
+
     # Compose the loading and intensity scaling here to cache transforms in monai persistent dataset
+    if input_format in ("numpy", "npy", "npz"):
+        base_transforms = [
+            LoadNumpyd(keys=["image"], npz_key=npz_key),
+            Lambdad(keys=["image"], func=random_select_time),
+            Lambdad(
+                keys=["image"], func=lambda x: torch.nan_to_num(x, torch.nanmean(x).item())
+            ),  # replace NaNs with mean
+            ScaleIntensityRangePercentilesd(keys=["image"], lower=0.05, upper=99.95, b_min=-1, b_max=1, clip=True),
+        ]
+
+        if random_crop_size is not None:
+            base_transforms.append(
+                RandSpatialCropd(
+                    keys=["image"],
+                    roi_size=(random_crop_size, random_crop_size, random_crop_size),
+                    random_size=False,
+                )
+            )
+
+        base_transforms.append(lambda data: data["image"])
+        cache_n_trans = 4
+    else:
+        base_transforms = [
+            LoadImaged(keys=["image"], ensure_channel_first=True),
+            Lambdad(keys=["image"], func=random_select_time),
+            Lambdad(
+                keys=["image"], func=lambda x: torch.nan_to_num(x, torch.nanmean(x).item())
+            ),  # replace NaNs with mean
+            ScaleIntensityRangePercentilesd(keys=["image"], lower=0.05, upper=99.95, b_min=-1, b_max=1, clip=True),
+            CropForegroundSwapSliceDims(select_fn=lambda x: x > -1),
+        ]
+        cache_n_trans = 5
+
     data_transform = Compose(
             [
-                LoadImaged(keys=["image"], ensure_channel_first=True),
-                Lambdad(keys=["image"], func=random_select_time),
-                Lambdad(
-                    keys=["image"], func=lambda x: torch.nan_to_num(x, torch.nanmean(x).item())
-                ),  # replace NaNs with mean
-                ScaleIntensityRangePercentilesd(keys=["image"], lower=0.05, upper=99.95, b_min=-1, b_max=1, clip=True),
-                CropForegroundSwapSliceDims(select_fn=lambda x: x > -1),
+                *base_transforms,
                 DataAugmentationDINO3d(
                     cfg.crops.global_crops_in_slice_scale,
                     cfg.crops.global_crops_cross_slice_scale,
@@ -220,6 +294,8 @@ def do_train(cfg, model, resume=False):
         dataset_path=cfg.train.dataset_path,
         cache_path=cfg.train.cache_dir,
         data_min_axis_size=cfg.train.data_min_axis_size,
+        input_format=input_format,
+        cache_n_trans=cache_n_trans,
         transform=data_transform
     )
     sampler_type = SamplerType.SHARDED_INFINITE
