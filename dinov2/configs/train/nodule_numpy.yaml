@@ -6,6 +6,9 @@ train:
   input_format: numpy
   data_min_axis_size: 63
   random_crop_size: 64
+  batch_size_per_gpu: 8
+  num_workers: 8
+  OFFICIAL_EPOCH_LENGTH: 20
 
 crops:
   global_crops_size: 64
