@@ -64,6 +64,7 @@ train:
   dataset_path: '/home/txu/scratch/amgrp/dinov2_3d/dinov2_subset_datalist.json'
   input_format: nifti
   csv_paths:
+  csv_path_column:
   csv_file_column: files
   csv_cohort_column: cohort
   random_crop_size:

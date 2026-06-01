@@ -296,6 +296,7 @@ def do_train(cfg, model, resume=False):
         data_min_axis_size=cfg.train.data_min_axis_size,
         input_format=input_format,
         csv_paths=getattr(cfg.train, "csv_paths", None),
+        csv_path_column=getattr(cfg.train, "csv_path_column", None),
         csv_file_column=getattr(cfg.train, "csv_file_column", "files"),
         csv_cohort_column=getattr(cfg.train, "csv_cohort_column", "cohort"),
         cache_n_trans=cache_n_trans,

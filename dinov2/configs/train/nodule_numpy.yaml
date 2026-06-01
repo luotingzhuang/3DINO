@@ -1,10 +1,8 @@
 train:
   dataset_path: /hsuraid/luotingzhuang/projects/pseudotime2/numpy_data
   csv_paths:
-  - /path/to/dataset_a.csv
-  - /path/to/dataset_b.csv
-  csv_file_column: files
-  csv_cohort_column: cohort
+  - /path/to/nodules.csv
+  csv_path_column: path
   input_format: numpy
   data_min_axis_size: 63
   random_crop_size: 64

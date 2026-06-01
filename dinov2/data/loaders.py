@@ -55,6 +55,7 @@ def make_dataset_3d(
     data_min_axis_size: int,
     input_format: str = "nifti",
     csv_paths: Optional[List[str]] = None,
+    csv_path_column: Optional[str] = None,
     csv_file_column: str = "files",
     csv_cohort_column: str = "cohort",
     cache_n_trans: int = 5,
@@ -70,6 +71,8 @@ def make_dataset_3d(
         data_min_axis_size: The minimum size of the smallest axis of the data.
         input_format: The input volume format. Supports "nifti" and "numpy".
         csv_paths: Optional CSV path or paths. Each CSV must contain file and cohort columns.
+        csv_path_column: Optional CSV column containing the full numpy path. If set, this is used
+            instead of joining dataset_path/cohort/files.
         csv_file_column: CSV column containing the numpy filename/path.
         csv_cohort_column: CSV column containing the cohort subdirectory.
         cache_n_trans: Number of leading transforms to cache in MONAI CacheNTransDataset.
@@ -116,19 +119,25 @@ def make_dataset_3d(
         for csv_path in paths:
             with open(csv_path, newline="") as csv_f:
                 reader = csv.DictReader(csv_f)
-                missing_columns = {csv_file_column, csv_cohort_column} - set(reader.fieldnames or [])
+                required_columns = {csv_path_column} if csv_path_column else {csv_file_column, csv_cohort_column}
+                missing_columns = required_columns - set(reader.fieldnames or [])
                 if missing_columns:
                     raise ValueError(f"{csv_path} is missing required columns: {sorted(missing_columns)}")
 
                 for row in reader:
-                    image_path = os.path.join(dataset_path, row[csv_cohort_column], row[csv_file_column])
-                    datalist.append(
-                        {
+                    if csv_path_column:
+                        image_path = row[csv_path_column]
+                        if not os.path.isabs(image_path):
+                            image_path = os.path.join(dataset_path, image_path)
+                        sample = {"image": image_path, "source_csv": csv_path}
+                    else:
+                        image_path = os.path.join(dataset_path, row[csv_cohort_column], row[csv_file_column])
+                        sample = {
                             "image": image_path,
                             "cohort": row[csv_cohort_column],
                             "source_csv": csv_path,
                         }
-                    )
+                    datalist.append(sample)
         return datalist
 
     # load datalist
