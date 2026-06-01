@@ -1,8 +1,8 @@
 train:
   dataset_path: /hsuraid/luotingzhuang/projects/pseudotime2/numpy_data
   csv_paths:
-  - /path/to/nodules.csv
-  csv_path_column: path
+  - /hsuraid/luotingzhuang/projects/foundation/csv/nodule.csv
+  csv_path_column: nodule_crop_path
   input_format: numpy
   data_min_axis_size: 63
   random_crop_size: 64
