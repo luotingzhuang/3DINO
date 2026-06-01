@@ -11,6 +11,7 @@ import os
 from copy import deepcopy
 import random
 
+import csv
 import numpy as np
 import torch
 from torch.utils.data import Sampler
@@ -53,6 +54,9 @@ def make_dataset_3d(
     cache_path: str,
     data_min_axis_size: int,
     input_format: str = "nifti",
+    csv_paths: Optional[List[str]] = None,
+    csv_file_column: str = "files",
+    csv_cohort_column: str = "cohort",
     cache_n_trans: int = 5,
     transform: Optional[Callable] = None,
 ):
@@ -60,10 +64,14 @@ def make_dataset_3d(
     Creates a 3d input dataset with the specified parameters.
 
     Args:
-        dataset_path: A path to a list of sample paths for MONAI datasets, or a directory of numpy files.
+        dataset_path: A path to a list of sample paths for MONAI datasets, a directory of numpy files,
+            or the root directory for CSV-backed numpy files.
         cache_path: A path to a directory to cache the dataset.
         data_min_axis_size: The minimum size of the smallest axis of the data.
         input_format: The input volume format. Supports "nifti" and "numpy".
+        csv_paths: Optional CSV path or paths. Each CSV must contain file and cohort columns.
+        csv_file_column: CSV column containing the numpy filename/path.
+        csv_cohort_column: CSV column containing the cohort subdirectory.
         cache_n_trans: Number of leading transforms to cache in MONAI CacheNTransDataset.
         transform: A transform to apply to images.
     Returns:
@@ -71,6 +79,13 @@ def make_dataset_3d(
     """
     logger.info(f'creating 3d dataset from datalist: {dataset_path}')
     input_format = input_format.lower()
+
+    def _as_list(paths):
+        if paths is None:
+            return []
+        if isinstance(paths, str):
+            return [path.strip() for path in paths.split(",") if path.strip()]
+        return list(paths)
 
     def _numpy_shape(path):
         if path.endswith(".npz"):
@@ -96,8 +111,31 @@ def make_dataset_3d(
             return shape[:3]
         return shape[:3]
 
+    def _load_csv_datalist(paths):
+        datalist = []
+        for csv_path in paths:
+            with open(csv_path, newline="") as csv_f:
+                reader = csv.DictReader(csv_f)
+                missing_columns = {csv_file_column, csv_cohort_column} - set(reader.fieldnames or [])
+                if missing_columns:
+                    raise ValueError(f"{csv_path} is missing required columns: {sorted(missing_columns)}")
+
+                for row in reader:
+                    image_path = os.path.join(dataset_path, row[csv_cohort_column], row[csv_file_column])
+                    datalist.append(
+                        {
+                            "image": image_path,
+                            "cohort": row[csv_cohort_column],
+                            "source_csv": csv_path,
+                        }
+                    )
+        return datalist
+
     # load datalist
-    if input_format in ("numpy", "npy", "npz") and os.path.isdir(dataset_path):
+    csv_paths = _as_list(csv_paths)
+    if csv_paths:
+        datalist = _load_csv_datalist(csv_paths)
+    elif input_format in ("numpy", "npy", "npz") and os.path.isdir(dataset_path):
         datalist = [
             {"image": os.path.join(dataset_path, filename)}
             for filename in sorted(os.listdir(dataset_path))

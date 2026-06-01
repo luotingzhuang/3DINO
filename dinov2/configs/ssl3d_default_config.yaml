@@ -63,6 +63,9 @@ train:
   data_min_axis_size: 24
   dataset_path: '/home/txu/scratch/amgrp/dinov2_3d/dinov2_subset_datalist.json'
   input_format: nifti
+  csv_paths:
+  csv_file_column: files
+  csv_cohort_column: cohort
   random_crop_size:
   npz_key:
   output_dir: ./output_test
