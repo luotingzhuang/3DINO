@@ -1,5 +1,5 @@
 train:
-  dataset_path: /path/to/nodule_numpy_root
+  dataset_path: /hsuraid/luotingzhuang/projects/pseudotime2/numpy_data
   csv_paths:
   - /path/to/dataset_a.csv
   - /path/to/dataset_b.csv
