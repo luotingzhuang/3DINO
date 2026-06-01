@@ -1,5 +1,10 @@
 train:
-  dataset_path: /path/to/nodule_numpy_crops
+  dataset_path: /path/to/nodule_numpy_root
+  csv_paths:
+  - /path/to/dataset_a.csv
+  - /path/to/dataset_b.csv
+  csv_file_column: files
+  csv_cohort_column: cohort
   input_format: numpy
   data_min_axis_size: 63
   random_crop_size: 64
