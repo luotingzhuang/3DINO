@@ -1,11 +1,12 @@
 FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-devel
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
-ENV PIP_NO_CACHE_DIR=1
-ENV PYTHONPATH=/workspace
+ARG USER_ID
+ARG GROUP_ID
 
-WORKDIR /workspace
+ENV TZ=America/Los_Angeles
+
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -30,22 +31,10 @@ RUN python -m pip install \
     torchio \
     torchmetrics
 
-COPY . /workspace/dinov2
+RUN if [ ${USER_ID:-0} -ne 0 ] && [ ${GROUP_ID:-0} -ne 0 ]; then \
+    groupadd -g ${GROUP_ID} luotingzhuang && \
+    useradd -l -u ${USER_ID} -g luotingzhuang luotingzhuang && \
+    install -d -m 0755 -o luotingzhuang -g luotingzhuang /home/luotingzhuang;fi
 
-WORKDIR /workspace
 
-RUN python - <<'PY'
-import torch
-import torchvision
-import xformers
-import monai
-import dinov2
-
-print("torch", torch.__version__)
-print("torchvision", torchvision.__version__)
-print("xformers", xformers.__version__)
-print("monai", monai.__version__)
-print("CUDA available at build time:", torch.cuda.is_available())
-PY
-
-CMD ["python", "dinov2/train/train3d.py", "--help"]
+USER luotingzhuang
