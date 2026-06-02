@@ -97,13 +97,15 @@ def make_dataset_3d(
                 return npz_file[key].shape
         return np.load(path, mmap_mode="r").shape
 
+    should_filter_by_shape = data_min_axis_size is not None and data_min_axis_size > 0
+
     def _as_sample(item):
         if isinstance(item, str):
             sample = {"image": item}
         else:
             sample = item
 
-        if input_format in ("numpy", "npy", "npz") and "shape" not in sample:
+        if should_filter_by_shape and input_format in ("numpy", "npy", "npz") and "shape" not in sample:
             sample["shape"] = _numpy_shape(sample["image"])
         return sample
 
@@ -156,8 +158,10 @@ def make_dataset_3d(
 
     datalist = [_as_sample(x) for x in datalist]
 
-    # filter overly small data
-    datalist = [x for x in datalist if min(_spatial_shape(x['shape'])) > data_min_axis_size]
+    # filter overly small data; set data_min_axis_size <= 0 to skip the up-front
+    # shape scan for large pre-cropped numpy datasets.
+    if should_filter_by_shape:
+        datalist = [x for x in datalist if min(_spatial_shape(x['shape'])) > data_min_axis_size]
     dataset = CacheNTransDataset(datalist, transform=transform, cache_n_trans=cache_n_trans, cache_dir=cache_path)
 
     # Aggregated datasets do not expose (yet) these attributes, so add them.
