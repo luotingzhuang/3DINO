@@ -90,23 +90,11 @@ def make_dataset_3d(
             return [path.strip() for path in paths.split(",") if path.strip()]
         return list(paths)
 
-    def _numpy_shape(path):
-        if path.endswith(".npz"):
-            with np.load(path, mmap_mode="r") as npz_file:
-                key = next(iter(npz_file.files))
-                return npz_file[key].shape
-        return np.load(path, mmap_mode="r").shape
-
-    should_filter_by_shape = data_min_axis_size is not None and data_min_axis_size > 0
-
     def _as_sample(item):
         if isinstance(item, str):
             sample = {"image": item}
         else:
             sample = item
-
-        if should_filter_by_shape and input_format in ("numpy", "npy", "npz") and "shape" not in sample:
-            sample["shape"] = _numpy_shape(sample["image"])
         return sample
 
     def _spatial_shape(shape):
@@ -156,13 +144,21 @@ def make_dataset_3d(
         with open(dataset_path, 'r') as json_f:
             datalist = json.load(json_f)
 
+    logger.info(f"loaded 3d datalist with {len(datalist):,d} entries")
     datalist = [_as_sample(x) for x in datalist]
 
-    # filter overly small data; set data_min_axis_size <= 0 to skip the up-front
-    # shape scan for large pre-cropped numpy datasets.
-    if should_filter_by_shape:
+    should_filter_by_shape = data_min_axis_size is not None and data_min_axis_size > 0
+    if input_format in ("numpy", "npy", "npz"):
+        logger.info("skipping upfront shape filtering for numpy inputs")
+    elif should_filter_by_shape and all("shape" in x for x in datalist):
+        before_filter = len(datalist)
         datalist = [x for x in datalist if min(_spatial_shape(x['shape'])) > data_min_axis_size]
+        logger.info(f"kept {len(datalist):,d}/{before_filter:,d} entries after shape filtering")
+    elif should_filter_by_shape:
+        logger.info("skipping upfront shape filtering because datalist entries do not include shape metadata")
+    logger.info("creating MONAI CacheNTransDataset")
     dataset = CacheNTransDataset(datalist, transform=transform, cache_n_trans=cache_n_trans, cache_dir=cache_path)
+    logger.info("finished creating MONAI CacheNTransDataset")
 
     # Aggregated datasets do not expose (yet) these attributes, so add them.
     if not hasattr(dataset, "transform"):
