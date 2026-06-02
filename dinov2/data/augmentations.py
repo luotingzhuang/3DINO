@@ -26,7 +26,10 @@ from monai.transforms import (
 from monai.data.utils import get_random_patch, get_valid_patch_size
 from torch.nn.functional import interpolate
 import math
+import monai
 
+monai.utils.set_determinism(seed=42)
+monai.utils.misc.MAX_SEED = 2**32 - 1  # ensure it's uint32-safe
 
 logger = logging.getLogger("dinov2")
 

@@ -26,7 +26,9 @@ from dinov2.utils.config import setup_3d
 from dinov2.utils.utils import CosineScheduler
 
 from dinov2.train.ssl_meta_arch import SSLMetaArch
+import monai
 
+monai.utils.set_determinism(seed=42)
 torch.backends.cuda.matmul.allow_tf32 = True  # PyTorch 1.12 sets this to False by default
 logger = logging.getLogger("dinov2")
 
@@ -52,7 +54,7 @@ class LoadNumpyd(MapTransform):
         else:
             array = np.load(path)
 
-        array = np.asarray(array)
+        array = np.squeeze(np.asarray(array))
         if array.ndim == 3:
             array = array[None]
         elif array.ndim == 4 and array.shape[0] != 1 and array.shape[-1] == 1:
